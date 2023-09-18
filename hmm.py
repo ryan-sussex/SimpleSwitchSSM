@@ -12,7 +12,6 @@ class HMM():
         self.emission_matrix /= self.emission_matrix.sum(axis=0)
         self.initial_state = np.ones(n_hidden) / n_hidden
         self.state = self.initial_state
-    
 
     def sample(self):
         state_probs = self.transition_matrix @ self.state
