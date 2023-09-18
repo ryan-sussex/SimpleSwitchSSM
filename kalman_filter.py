@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 
 
@@ -51,30 +52,34 @@ class KalmanFilter:
         print("obs:", obs)
         return obs
 
-    def forward(self, obs):
+    def forward(self, obs: Optional[np.array]):
         prior = self.transition @ self.state
         prior_uncertainty = (
             self.transition @ self.uncertainty @ self.transition.T
             + self.transition_noise
         )
 
-        residual = obs - self.likelihood @ prior
-        residual_uncertainty = (
-            self.likelihood @ self.uncertainty @ self.likelihood.T
-            + self.likelihood_noise
-        )
+        residual = np.zeros(self.n_obs)
+        kalman_gain = np.zeros((self.n_hidden, self.n_obs))
+        if obs is not None:
+            residual = obs - self.likelihood @ prior
+            residual_uncertainty = (
+                self.likelihood @ self.uncertainty @ self.likelihood.T
+                + self.likelihood_noise
+            )
 
-        kalman_gain = (
-            prior_uncertainty
-            @ self.likelihood.T
-            @ np.linalg.pinv(residual_uncertainty)
-        )
+            kalman_gain = (
+                prior_uncertainty
+                @ self.likelihood.T
+                @ np.linalg.pinv(residual_uncertainty)
+            )
 
         self.state = prior + kalman_gain @ residual
 
         self.uncertainty_estimate = (
             np.eye(self.n_hidden) - kalman_gain @ self.likelihood
         ) @ prior_uncertainty
+    
         return (self.state, self.uncertainty_estimate)
 
     def em(self, obs_sequence):
@@ -105,8 +110,8 @@ if __name__ == "__main__":
     ref_kf = KalmanFilter(
         n_obs=1,
         n_hidden=1,
-        transition=np.array([[1]]),
-        likelihood=np.array([[10]]),
+        transition=np.array([[2]]),
+        likelihood=np.array([[1]]),
         initial_state=np.ones(1),
     )
     kf = KalmanFilter(
@@ -118,12 +123,21 @@ if __name__ == "__main__":
     )
     for i in range(1000):
         sample_traj = []
-        for i in range(1):
+        for j in range(2):
             sample_traj.append(ref_kf.sample())
+
+        
         print(sample_traj)
         kf.em(sample_traj)
         ref_kf.reset()
         kf.reset()
+        
+        if i == 999:
+            for j in range(5):
+                print("predictions")
+                print(kf.forward(None)[0])
+
+
 
     print("Parameters")
     print(kf.transition)
