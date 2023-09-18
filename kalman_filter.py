@@ -10,7 +10,8 @@ class KalmanFilter():
             n_hidden,
             transition = None,
             likelihood = None,
-            initial_state = None
+            initial_state = None,
+            std = .01
         ):
         self.n_hidden = n_hidden
         self.n_obs = n_obs
@@ -30,7 +31,7 @@ class KalmanFilter():
             self.transition = transition
 
 
-        self.transition_noise = np.eye(n_hidden) 
+        self.transition_noise = np.eye(n_hidden) * std
 
         if likelihood is None:
             self.likelihood = np.ones(
@@ -39,7 +40,7 @@ class KalmanFilter():
         else:
             self.likelihood = likelihood
 
-        self.likelihood_noise = np.eye(n_obs)
+        self.likelihood_noise = np.eye(n_obs) * std
 
         self.state = self.inital_state
 
@@ -88,6 +89,8 @@ class KalmanFilter():
         total_cov = np.zeros((self.n_hidden, self.n_hidden))
         for obs in obs_sequence:
             state, cov = self.forward(obs)
+            print("obs", obs)
+            print("hidden state", state)
             err += np.expand_dims(obs, 1) @ np.expand_dims(state, 0) 
             total_cov += cov
         
@@ -110,14 +113,14 @@ if __name__ == "__main__":
         likelihood=np.array(
             [
                 [1, 2],
-                [1, 1]
+                [2, 1]
             ]
         ),
         initial_state=np.ones(2)
     )
 
     sample_traj = [] 
-    for i in range(10):
+    for i in range(500):
         sample_traj.append(ref_kf.sample())
     print(sample_traj)
     
