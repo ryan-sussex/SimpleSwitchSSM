@@ -10,7 +10,7 @@ class KalmanFilter:
         transition=None,
         likelihood=None,
         initial_state=None,
-        std=0.001,
+        std=0.1,
     ):
         self.n_hidden = n_hidden
         self.n_obs = n_obs
@@ -76,17 +76,18 @@ class KalmanFilter:
 
         self.state = prior + kalman_gain @ residual
 
-        self.uncertainty_estimate = (
+        self.uncertainty = (
             np.eye(self.n_hidden) - kalman_gain @ self.likelihood
         ) @ prior_uncertainty
     
-        return (self.state, self.uncertainty_estimate)
+        return (self.state, self.uncertainty)
 
     def em(self, obs_sequence):
         err = np.zeros((self.n_obs, self.n_hidden))
         state_err = np.zeros((self.n_hidden, self.n_hidden))
         total_cov = np.zeros((self.n_hidden, self.n_hidden))
         prev_state = self.state
+        # prev_cov = self.uncertainty
         for obs in obs_sequence:
             state, cov = self.forward(obs)
             print("obs", obs)
@@ -110,7 +111,7 @@ if __name__ == "__main__":
     ref_kf = KalmanFilter(
         n_obs=1,
         n_hidden=1,
-        transition=np.array([[2]]),
+        transition=np.array([[1.1]]),
         likelihood=np.array([[1]]),
         initial_state=np.ones(1),
     )
@@ -121,9 +122,9 @@ if __name__ == "__main__":
         # likelihood=np.array([[1, 2], [2, 1]]),
         initial_state=np.ones(1),
     )
-    for i in range(1000):
+    for i in range(10):
         sample_traj = []
-        for j in range(2):
+        for j in range(10):
             sample_traj.append(ref_kf.sample())
 
         
@@ -132,7 +133,7 @@ if __name__ == "__main__":
         ref_kf.reset()
         kf.reset()
         
-        if i == 999:
+        if i == 9:
             for j in range(5):
                 print("predictions")
                 print(kf.forward(None)[0])
@@ -140,5 +141,7 @@ if __name__ == "__main__":
 
 
     print("Parameters")
+    print("transition")
     print(kf.transition)
+    print("likelihood")
     print(kf.likelihood)
