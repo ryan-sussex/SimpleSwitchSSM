@@ -1,15 +1,26 @@
-from typing import Optional
+from typing import Optional, List
 import numpy as np
 
 
 class HMM():
 
-    def __init__(self, n_hidden: int, n_obs: int) -> None:
+    def __init__(
+            self, 
+            n_hidden: int, 
+            n_obs: int,
+            transition_prior: Optional[np.array] = None,
+            emmission_prior: Optional[np.array] = None
+        ) -> None:
         self.n_hidden = n_hidden
         self.n_obs = n_obs
-        self.transition_matrix = np.eye(n_hidden)
-        self.emission_matrix = np.ones((n_obs, n_hidden))
-        self.emission_matrix /= self.emission_matrix.sum(axis=0)
+        self.transition_prior = np.ones((n_hidden, n_hidden))
+        if transition_prior is not None:
+            self.transition_prior = transition_prior
+        self.transition_matrix = self.transition_prior / np.sum(self.transition_prior, axis=0)
+        self.emission_prior = np.ones((n_obs, n_hidden))
+        if emmission_prior is not None:
+            self.emission_prior = emmission_prior
+        self.emission_matrix = self.emission_prior / self.emission_prior.sum(axis=0)
         self.initial_state = np.ones(n_hidden) / n_hidden
         self.state = self.initial_state
 
@@ -23,13 +34,31 @@ class HMM():
         return obs_indx
 
     def forward(self, obs_indx):
-        prior = self.transition_matrix @ self.initial_state
+        # prior = self.transition_matrix @ self.
         likelihood = np.diag(self.emission_matrix[obs_indx, :])
-        unnorm_state = likelihood @ self.transition_matrix @ self.initial_state
+        unnorm_state = likelihood @ self.transition_matrix @ self.state
         self.state = unnorm_state / unnorm_state.sum()
-    
-    def em():
-        pass
+        return self.state
+
+    def em(self, obs_seq: List[np.array]):
+        state_dists = []
+        empirical_transitions = []
+        prev_state = self.initial_state
+        for obs in obs_seq:
+            state_dist = self.forward(obs)
+            state_dists.append(state_dist)
+            empirical_transitions.append(
+                 np.expand_dims(state_dist, 1) @ 
+                 np.expand_dims(prev_state, 0) 
+            )
+            prev_state = state_dist
+            print("counts", empirical_transitions[-1])
+
+        n_visits = np.sum(state_dists)
+        n_transitions = np.sum(empirical_transitions)
+        self.transition_prior = self.transition_prior + n_transitions
+        self.transition_matrix = self.transition_prior / self.transition_prior.sum(axis=0)
+        # self.
 
     def reset(self):
         self.state = self.initial_state
@@ -38,13 +67,27 @@ class HMM():
 
 if __name__ == "__main__":
 
-    hmm = HMM(3, 2)
+    ref_hmm = HMM(
+        n_hidden=2,
+        n_obs=2,
+        transition_prior=np.array([[1,0], [0,1]]),
+        emmission_prior=np.array([[10,2], [5,3]])
+    )
     data = []
     for i in range(10):
-        data.append(hmm.sample())
+        data.append(ref_hmm.sample())
     print(data)
 
-    hmm.reset()
+    hmm = HMM(
+        2, 2,
+        emmission_prior=np.array([[10,2], [5,3]])
+    )
+    # hmm.reset
     for datum in data:
         hmm.forward(datum)
         print(hmm.state)
+
+    hmm.reset()
+    hmm.em(data)
+    print(hmm.transition_prior)
+    print(hmm.transition_matrix)
