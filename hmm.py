@@ -139,7 +139,7 @@ if __name__ == "__main__":
     hmm = HMM(
         2, 2,
         transition_prior=np.array([[1,1], [1,1]]),
-        emmission_prior=np.array([[99,1], [1,99]])
+        emmission_prior=np.array([[99,1], [1,5]])
     )
     starting_transition = hmm.transition_matrix
     starting_emission = hmm.emission_matrix
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             hmm.forward(step)
             pred = hmm.sample(update_state=False)
 
-        # print("error:", error)
+        print("error:", error)
         hmm.reset()
 
     # print(hmm.transition_prior)
