@@ -39,12 +39,16 @@ class HMM():
 
     def forward(self, obs_indx):
         # prior = self.transition_matrix @ self.
-        likelihood = np.diag(self.emission_matrix[obs_indx, :])
-        unnorm_state = likelihood @ self.transition_matrix @ self.state
-        self.state = unnorm_state / unnorm_state.sum()
+        self.state = self._forward(obs_indx, self.state)
         return self.state
+    
+    def _forward(self, obs_indx, forward_state):
+        likelihood = np.diag(self.emission_matrix[obs_indx, :])
+        unnorm_state = likelihood @ self.transition_matrix @ forward_state
+        state = unnorm_state / unnorm_state.sum()
+        return state
 
-    def backwards(self, obs_indx, backwards_state):
+    def backward(self, obs_indx, backwards_state):
         likelihood = np.diag(self.emission_matrix[obs_indx, :])
         unnorm_state = backwards_state @ self.transition_matrix @ likelihood 
         state = unnorm_state / unnorm_state.sum()
@@ -58,49 +62,52 @@ class HMM():
         state_dists = []
         empirical_transitions = []
         empirical_emmissions = []
-        prev_state = self.initial_state
+        forwards_state = self.initial_state
+        backwards_state = np.ones(self.n_hidden)
+        forwards = []
+        backwards = []
+        # Run forwards - backwards to get posteriors
         for obs in obs_seq:
-            backwards_prob = self.backwards(obs, np.ones(self.n_hidden))
+            forwards_state = self._forward(obs, forwards_state)
+            forwards.append(forwards_state)
+        forwards = np.array(forwards)
 
-            empirical_transitions.append(
-                 np.expand_dims(backwards_prob, 1) @ 
-                 np.expand_dims(prev_state, 0) 
-                #  * self.transition_matrix
+        for obs in reversed(obs_seq):
+            backwards_state = self.backward(obs, backwards_state)
+            backwards.append(backwards_state)
+        backwards = np.array(list(reversed(backwards)))
+
+        state_posteriors = forwards * backwards + 0.001
+
+
+        # Calculat ML estimates given posteriors
+        n_transitions = np.zeros((self.n_hidden, self.n_hidden))
+        n_emissions = np.zeros((self.n_obs, self.n_hidden)) 
+        for i in range(forwards.shape[0]-1):
+            n_transitions += (
+                forwards[i][:, np.newaxis] @ backwards[i+1][np.newaxis, :]
+                # * self.transition_matrix
             )
-    
-            state_dist = self.forward(obs)
-            state_dists.append(state_dist)
-
-
-            empirical_emmissions.append(
-                 np.expand_dims(state_dist, 1) @ 
-                 np.expand_dims(np.eye(self.n_obs)[obs,:], 0) 
-                #  * self.emission_matrix
-            )
-            prev_state = state_dist
-            # print("counts", empirical_transitions[-1])
-
-        n_visits = np.sum(state_dists, axis=0)
-        n_visits /= n_visits.sum()
-        # print("n visits", n_visits)
-        n_transitions = np.sum(empirical_transitions, axis=0) / n_visits
-        n_emissions = np.sum(empirical_emmissions, axis=0) / n_visits
-        # print("n transitions", n_transitions)
-        # print("n emissions", n_emissions)
+            obs_indx = obs_seq[i]
+            n_emissions += (
+                np.eye(self.n_obs)[obs_indx,:][:, np.newaxis]
+                @ state_posteriors[i][np.newaxis, :]
+                # / state_posteriors[i]
+            )        
 
         self.transition_prior = self.transition_prior + n_transitions * lr
         self.transition_matrix = self.transition_prior / self.transition_prior.sum(axis=0)
         
         self.emission_prior = self.emission_prior + n_emissions * lr
         self.emission_matrix = self.emission_prior / self.emission_prior.sum(axis=0)
+        return
+
 
     def em_iterations(self, obs_seq: List[np.array], iters=10):
         for _ in range(iters):
             self.em(obs_seq)
             self.reset()
-
         
-
     def reset(self):
         self.state = self.initial_state
 
@@ -111,13 +118,13 @@ if __name__ == "__main__":
     ref_hmm = HMM(
         n_hidden=2,
         n_obs=2,
-        transition_prior=np.array([[2,20], [1,7]]),
-        emmission_prior=np.array([[1,10], [9,3]])
+        transition_prior=np.array([[6,1], [1,7]]),
+        emmission_prior=np.array([[99,1], [1,99]])
     )
     data = []
     for i in range(100):
         traj = []
-        for i in range(10):
+        for i in range(100):
             traj.append(ref_hmm.sample())
             # print(traj)
         data.append(traj)
@@ -131,13 +138,17 @@ if __name__ == "__main__":
 
     hmm = HMM(
         2, 2,
-        transition_prior=np.array([[5,2], [1,7]]),
-        emmission_prior=np.array([[1,10], [9,3]])
+        transition_prior=np.array([[1,1], [1,1]]),
+        emmission_prior=np.array([[99,1], [1,99]])
     )
+    starting_transition = hmm.transition_matrix
+    starting_emission = hmm.emission_matrix
+
+
     # hmm.reset
     for traj in data:
         # for step in traj:
-        # hmm.em_iterations(traj, iters=10)
+        hmm.em_iterations(traj, iters=100)
         hmm.reset()
 
         pred = 0
@@ -145,16 +156,19 @@ if __name__ == "__main__":
         for step in test_traj:#
             # print(pred, step)
             error += int(pred != step)
-            log_likelihood = 
             hmm.forward(step)
             pred = hmm.sample(update_state=False)
 
-        print("error:", error)
+        # print("error:", error)
         hmm.reset()
 
-    print(hmm.transition_prior)
+    # print(hmm.transition_prior)
+    print("initial transition", starting_transition)
     print("transition probs", hmm.transition_matrix)
+    print("gt", ref_hmm.transition_matrix)
 
-    print(hmm.emission_prior)
-    print("emission probs")
-    print(hmm.emission_matrix)
+    print("\n")
+    # print(hmm.emission_prior)
+    print("inital emission", starting_emission)
+    print("emission probs", hmm.emission_matrix)
+    print("gt", ref_hmm.emission_matrix)
