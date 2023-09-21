@@ -3,6 +3,10 @@ import numpy as np
 
 
 class KalmanFilter:
+    """
+    See https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.314.2260&rep=rep1&type=pdf
+    for ref
+    """
     def __init__(
         self,
         n_obs,
@@ -10,7 +14,7 @@ class KalmanFilter:
         transition=None,
         likelihood=None,
         initial_state=None,
-        std=0.1,
+        std=1,
     ):
         self.n_hidden = n_hidden
         self.n_obs = n_obs
@@ -52,10 +56,15 @@ class KalmanFilter:
         print("obs:", obs)
         return obs
 
-    def forward(self, obs: Optional[np.array]):
-        prior = self.transition @ self.state
+    def _forward(
+            self,
+            obs: Optional[np.array],
+            state: np.array,
+            uncertainty
+        ):
+        prior = self.transition @ state
         prior_uncertainty = (
-            self.transition @ self.uncertainty @ self.transition.T
+            self.transition @ uncertainty @ self.transition.T
             + self.transition_noise
         )
 
@@ -64,44 +73,153 @@ class KalmanFilter:
         if obs is not None:
             residual = obs - self.likelihood @ prior
             residual_uncertainty = (
-                self.likelihood @ self.uncertainty @ self.likelihood.T
+                self.likelihood @ uncertainty @ self.likelihood.T
                 + self.likelihood_noise
             )
 
             kalman_gain = (
                 prior_uncertainty
                 @ self.likelihood.T
-                @ np.linalg.pinv(residual_uncertainty)
+                @ np.linalg.
+                    pinv(residual_uncertainty)
+
             )
 
-        self.state = prior + kalman_gain @ residual
+        state = prior + kalman_gain @ residual
 
-        self.uncertainty = (
+        uncertainty = (
             np.eye(self.n_hidden) - kalman_gain @ self.likelihood
-        ) @ prior_uncertainty
-    
-        return (self.state, self.uncertainty)
+
+            ) @ prior_uncertainty
+        return (state, uncertainty, prior_uncertainty, kalman_gain)
+
+    def backward(
+            self,
+            state,
+            uncertainty,
+            prior_uncertainty,
+            next_uncertainty,
+            next_kalman_gain,
+            state_posterior,
+            uncertainty_posterior,
+            transition_uncertainty,
+    ):
+        kalman_gain = np.linalg.pinv(
+            uncertainty @ self.transition.T @ prior_uncertainty
+        )
+        state_posterior = (
+            state
+            + kalman_gain @ (state_posterior - self.transition @ state)
+        )
+        uncertainty_posterior = (
+            uncertainty +
+            kalman_gain @ (uncertainty_posterior - prior_uncertainty)
+            @ kalman_gain.T
+        )
+        transition_uncertainty = (
+            next_uncertainty @ kalman_gain.T
+            + next_kalman_gain
+            @ (transition_uncertainty - self.transition @ next_uncertainty)
+            @ kalman_gain.T
+        )
+        return (
+            state_posterior,
+            uncertainty_posterior,
+            transition_uncertainty,
+            kalman_gain
+        )
+
+    def forward(self, obs: Optional[np.array]):
+        self.state, self.uncertainty, _, _ = (
+            self._forward(obs, self.state, self.uncertainty)
+        )
+
+    def _init_backward(self, final_forward_kalman, uncertainty):
+        identity = np.eye(self.n_hidden)
+        return (
+            (identity - final_forward_kalman @ self.likelihood)
+            @ self.transition @ uncertainty
+        )
 
     def em(self, obs_sequence):
-        err = np.zeros((self.n_obs, self.n_hidden))
-        state_err = np.zeros((self.n_hidden, self.n_hidden))
-        total_cov = np.zeros((self.n_hidden, self.n_hidden))
-        prev_state = self.state
-        # prev_cov = self.uncertainty
+        filtered_states = []
+        filtered_uncertainty = []
+        prior_uncertainties = []
+        # Forwards (filtering)
         for obs in obs_sequence:
-            state, cov = self.forward(obs)
-            print("obs", obs)
-            print("hidden state", state)
-            err += np.expand_dims(obs, 1) @ np.expand_dims(state, 0)
-            state_err += np.expand_dims(prev_state, 1) @ np.expand_dims(state, 0)
-            total_cov += (
-                cov + np.expand_dims(state, 1) @ np.expand_dims(state, 0)
+            state, uncertainty, prior_uncertainty, kalman_gain = self._forward(
+                obs,
+                self.state,
+                self.uncertainty
             )
-            prev_state = state
+            filtered_states.append(state)
+            filtered_uncertainty.append(uncertainty)
+            prior_uncertainties.append(prior_uncertainty)
+        # Backwards recursions
 
-        self.likelihood = err @ np.linalg.pinv(total_cov)
-        self.transition = state_err @ np.linalg.pinv(total_cov)
+        state_posterior = filtered_states[-1]
+        uncertainty_posterior = filtered_uncertainty[-1]
+        state_posteriors = []
+        uncertainty_posteriors = []
+        transition_posteriors = []
 
+        transition_uncertainty = self._init_backward(
+            kalman_gain,
+            uncertainty
+        )
+        for t in reversed(range(len(obs_sequence)-1)):
+            (
+                state_posterior,
+                uncertainty_posterior,
+                transition_uncertainty,
+                kalman_gain
+            ) = self.backward(
+                filtered_states[t],
+                filtered_uncertainty[t],
+                prior_uncertainties[t],
+                prior_uncertainties[t+1],
+                kalman_gain,
+                state_posterior,
+                uncertainty_posterior,
+                transition_uncertainty
+            )
+            state_posteriors.append(state_posterior)
+            uncertainty_posteriors.append(uncertainty_posterior)
+            transition_posteriors.append(transition_uncertainty)
+
+        transition_posteriors = list(reversed(transition_posteriors))
+        uncertainty_posterior = list(reversed(uncertainty_posteriors))
+        state_posteriors = list(reversed(state_posteriors))
+
+        # M step
+        state_obs_cov = np.zeros((self.n_obs, self.n_hidden))
+        state_cov = np.zeros((self.n_hidden, self.n_hidden))
+        transition_cov = np.zeros((self.n_hidden, self.n_hidden))
+
+        for t in range(len(obs_sequence)-1):
+            state_obs_cov += obs_sequence[t][:, np.newaxis] @ state_posteriors[t][np.newaxis, :]
+            state_cov += (
+                state_posteriors[t][:, np.newaxis] @ state_posteriors[t][np.newaxis, :]
+                + uncertainty_posteriors[t]
+            )
+            if t == 0:
+                continue
+            transition_cov += (
+                state_posteriors[t][:, np.newaxis] @ state_posteriors[t-1][np.newaxis, :]
+                + transition_posteriors[t]
+            )
+        # Update parameters
+        print(state_cov)
+        print("cov", transition_cov)
+        state_precision = np.linalg.pinv(state_cov + np.eye(self.n_hidden))
+        self.transition = transition_cov @ state_precision
+        self.likelihood = state_cov @ state_precision
+        return
+    
+    def em_iterations(self, obs_sequence, iters):
+        for _ in range(iters):
+            self.em(obs_sequence)
+        
     def reset(self):
         self.state = self.inital_state
         self.uncertainty = np.eye(self.n_hidden)
@@ -109,39 +227,41 @@ class KalmanFilter:
 
 if __name__ == "__main__":
     ref_kf = KalmanFilter(
-        n_obs=1,
-        n_hidden=1,
-        transition=np.array([[1.1]]),
-        likelihood=np.array([[1]]),
-        initial_state=np.ones(1),
+        n_obs=2,
+        n_hidden=2,
+        transition=np.array([[1, 0], [0, 1]]),
+        likelihood=np.array([[1,0], [0, 1]]),
+        initial_state=np.ones(2),
     )
     kf = KalmanFilter(
-        n_obs=1,
-        n_hidden=1,
+        n_obs=2,
+        n_hidden=2,
         # transition=np.eye(2),
         # likelihood=np.array([[1, 2], [2, 1]]),
-        initial_state=np.ones(1),
+        initial_state=np.ones(2),
     )
-    for i in range(10):
+    for i in range(1):
         sample_traj = []
         for j in range(10):
             sample_traj.append(ref_kf.sample())
 
-        
+
         print(sample_traj)
-        kf.em(sample_traj)
+        kf.em_iterations(sample_traj, iters=10)
         ref_kf.reset()
         kf.reset()
-        
-        if i == 9:
-            for j in range(5):
-                print("predictions")
-                print(kf.forward(None)[0])
+
+        # if i == 9:
+        #     for j in range(5):
+        #         print("predictions")
+        #         print(kf.forward(None)[0])
 
 
 
     print("Parameters")
     print("transition")
     print(kf.transition)
+    print("gt", ref_kf.transition)
     print("likelihood")
     print(kf.likelihood)
+    print("gt", ref_kf.likelihood)
