@@ -50,12 +50,16 @@ class HMM():
             empirical_transitions.append(
                  np.expand_dims(state_dist, 1) @ 
                  np.expand_dims(prev_state, 0) 
+                #  * self.transition_matrix
             )
             prev_state = state_dist
             print("counts", empirical_transitions[-1])
 
-        n_visits = np.sum(state_dists)
-        n_transitions = np.sum(empirical_transitions)
+        n_visits = np.sum(state_dists, axis=0)
+        n_visits /= n_visits.sum()
+        print("n visits", n_visits)
+        n_transitions = np.sum(empirical_transitions, axis=0) / n_visits
+        print("n transitions", n_transitions)
         self.transition_prior = self.transition_prior + n_transitions
         self.transition_matrix = self.transition_prior / self.transition_prior.sum(axis=0)
         # self.
@@ -70,19 +74,20 @@ if __name__ == "__main__":
     ref_hmm = HMM(
         n_hidden=2,
         n_obs=2,
-        transition_prior=np.array([[1,0], [0,1]]),
-        emmission_prior=np.array([[10,2], [5,3]])
+        transition_prior=np.array([[10,1], [1,1]]),
+        emmission_prior=np.array([[1,0], [0,1]])
     )
     data = []
-    for i in range(10):
+    for i in range(100):
         data.append(ref_hmm.sample())
     print(data)
 
     hmm = HMM(
         2, 2,
-        emmission_prior=np.array([[10,2], [5,3]])
+        emmission_prior=np.array([[1,0], [0,1]])
     )
     # hmm.reset
+    print(hmm.state)
     for datum in data:
         hmm.forward(datum)
         print(hmm.state)
