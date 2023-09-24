@@ -54,14 +54,7 @@ class HMM():
         state = unnorm_state / unnorm_state.sum()
         return state
 
-
-    def em(self, obs_seq: List[np.array], lr=.01):
-        """
-        Online version of baum-welch
-        """
-        state_dists = []
-        empirical_transitions = []
-        empirical_emmissions = []
+    def e_step(self, obs_seq: List[np.array]):
         forwards_state = self.initial_state
         backwards_state = np.ones(self.n_hidden)
         forwards = []
@@ -78,8 +71,9 @@ class HMM():
         backwards = np.array(list(reversed(backwards)))
 
         state_posteriors = forwards * backwards + 0.001
+        return state_posteriors, forwards, backwards
 
-
+    def m_step(self, obs_seq, state_posteriors, forwards, backwards, lr: float):
         # Calculat ML estimates given posteriors
         n_transitions = np.zeros((self.n_hidden, self.n_hidden))
         n_emissions = np.zeros((self.n_obs, self.n_hidden)) 
@@ -102,6 +96,13 @@ class HMM():
         self.emission_matrix = self.emission_prior / self.emission_prior.sum(axis=0)
         return
 
+    def em(self, obs_seq: List[np.array], lr=.01):
+        """
+        Online version of baum-welch
+        """
+        state_posteriors, forwards, backwards = self.e_step(obs_seq)
+        self.m_step(obs_seq, state_posteriors, forwards, backwards, lr=lr)
+        return
 
     def em_iterations(self, obs_seq: List[np.array], iters=10):
         for _ in range(iters):

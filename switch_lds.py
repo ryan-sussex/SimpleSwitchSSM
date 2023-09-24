@@ -1,6 +1,8 @@
 """
 Following https://www.cs.toronto.edu/~hinton/absps/switch.pdf
 """
+import numpy as np
+
 from hmm import HMM
 from kalman_filter import KalmanFilter
 
@@ -36,7 +38,28 @@ class SwitchedStateSpace():
             print(f"switch state: {switch}") 
         
         return lds_samples[switch]
-    
+
+    def em(self, obs_sequence):
+        # E Step
+        # Need to seperate e and m steps in individual models
+        # Compute prediction errors for each chain
+        errors = []
+        for obs in obs_sequence:
+            prediction_error = np.array(self.n_switches)
+            for (m, lds) in self.state_space_models.items():
+                prediction_error[m] =  lds.error()
+            errors.append(prediction_error)
+        # Compute hmm posteriors (given prediction errors)
+            self.switching_model.em(errors)
+        # Run kalman smoother weighted by hidden states
+            for (m, lds) in self.state_space_models.items():
+                data = obs * self.switching_model.posterior[m]
+                lds.em(data)
+            
+        
+        # M step
+        
+
 
 
 if __name__ == "__main__":
