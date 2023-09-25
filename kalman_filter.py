@@ -81,9 +81,7 @@ class KalmanFilter:
             kalman_gain = (
                 prior_uncertainty
                 @ self.likelihood.T
-                @ np.linalg.
-                    pinv(residual_uncertainty)
-
+                @ np.linalg.pinv(residual_uncertainty)
             )
 
         state = prior + kalman_gain @ residual
