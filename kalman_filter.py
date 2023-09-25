@@ -104,8 +104,8 @@ class KalmanFilter:
             transition_uncertainty,
     ):
         kalman_gain = (
-            uncertainty 
-            @ self.transition.T 
+            uncertainty
+            @ self.transition.T
             @ np.linalg.pinv(prior_uncertainty)
         )
         state_posterior = (
@@ -142,7 +142,7 @@ class KalmanFilter:
             @ self.transition @ uncertainty
         )
 
-    def em(self, obs_sequence):
+    def e_step(self, obs_sequence):
         filtered_states = []
         filtered_uncertainty = []
         prior_uncertainties = []
@@ -189,9 +189,11 @@ class KalmanFilter:
             transition_posteriors.append(transition_uncertainty)
 
         transition_posteriors = list(reversed(transition_posteriors))
-        uncertainty_posterior = list(reversed(uncertainty_posteriors))
+        uncertainty_posteriors = list(reversed(uncertainty_posteriors))
         state_posteriors = list(reversed(state_posteriors))
+        return state_posteriors, uncertainty_posteriors, transition_posteriors
 
+    def m_step(self, obs_sequence, state_posteriors, uncertainty_posteriors, transition_posteriors):
         # M step
         state_obs_cov = np.zeros((self.n_obs, self.n_hidden))
         state_cov = np.zeros((self.n_hidden, self.n_hidden))
@@ -217,9 +219,22 @@ class KalmanFilter:
         new_ll = self.log_likelihood(obs_sequence, state_posteriors)
         return prev_ll, new_ll
 
+    def em(self, obs_sequence):
+        (
+            state_posteriors,
+            uncertainty_posteriors,
+            transition_posteriors
+        ) = self.e_step(obs_sequence)
+        return self.m_step(
+            obs_sequence,
+            state_posteriors,
+            uncertainty_posteriors,
+            transition_posteriors
+        )
+
     @staticmethod
     def gaussian_norm(v, mu, cov):
-        return (v - mu).T @ cov @ (v - mu) 
+        return (v - mu).T @ cov @ (v - mu)
 
     def log_likelihood(self, obs, posteriors):
         ll = 0

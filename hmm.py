@@ -5,8 +5,8 @@ import numpy as np
 class HMM():
 
     def __init__(
-            self, 
-            n_hidden: int, 
+            self,
+            n_hidden: int,
             n_obs: int,
             transition_prior: Optional[np.array] = None,
             emmission_prior: Optional[np.array] = None
@@ -41,7 +41,7 @@ class HMM():
         # prior = self.transition_matrix @ self.
         self.state = self._forward(obs_indx, self.state)
         return self.state
-    
+
     def _forward(self, obs_indx, forward_state):
         likelihood = np.diag(self.emission_matrix[obs_indx, :])
         unnorm_state = likelihood @ self.transition_matrix @ forward_state
@@ -50,7 +50,7 @@ class HMM():
 
     def backward(self, obs_indx, backwards_state):
         likelihood = np.diag(self.emission_matrix[obs_indx, :])
-        unnorm_state = backwards_state @ self.transition_matrix @ likelihood 
+        unnorm_state = backwards_state @ self.transition_matrix @ likelihood
         state = unnorm_state / unnorm_state.sum()
         return state
 
@@ -76,7 +76,7 @@ class HMM():
     def m_step(self, obs_seq, state_posteriors, forwards, backwards, lr: float):
         # Calculat ML estimates given posteriors
         n_transitions = np.zeros((self.n_hidden, self.n_hidden))
-        n_emissions = np.zeros((self.n_obs, self.n_hidden)) 
+        n_emissions = np.zeros((self.n_obs, self.n_hidden))
         for i in range(forwards.shape[0]-1):
             n_transitions += (
                 forwards[i][:, np.newaxis] @ backwards[i+1][np.newaxis, :]
@@ -87,11 +87,11 @@ class HMM():
                 np.eye(self.n_obs)[obs_indx,:][:, np.newaxis]
                 @ state_posteriors[i][np.newaxis, :]
                 # / state_posteriors[i]
-            )        
+            )
 
         self.transition_prior = self.transition_prior + n_transitions * lr
         self.transition_matrix = self.transition_prior / self.transition_prior.sum(axis=0)
-        
+
         self.emission_prior = self.emission_prior + n_emissions * lr
         self.emission_matrix = self.emission_prior / self.emission_prior.sum(axis=0)
         return
@@ -108,7 +108,7 @@ class HMM():
         for _ in range(iters):
             self.em(obs_seq)
             self.reset()
-        
+
     def reset(self):
         self.state = self.initial_state
 
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     test_traj = []
     for i in range(100):
         test_traj.append(ref_hmm.sample())
-    
+
 
 
     hmm = HMM(
