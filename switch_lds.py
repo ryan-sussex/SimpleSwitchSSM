@@ -1,23 +1,39 @@
 """
 Following https://www.cs.toronto.edu/~hinton/absps/switch.pdf
 """
+from typing import Optional, List
 import numpy as np
+from scipy import special as scisp
 
 from hmm import HMM
 from kalman_filter import KalmanFilter
 
 
 class SwitchedStateSpace:
-    def __init__(self, n_switches: int, n_hidden: int, n_obs: int):
-        self.n_switches = n_switches
-        self.n_obs = n_obs
-        self.n_hidden = n_hidden
+    def __init__(
+            self,
+            # n_switches: int,
+            # n_hidden: int,
+            # n_obs: int,
+            state_space_models: Optional[List[KalmanFilter]],
+            switching_model: Optional[HMM] = None
+        ):
+        # self.n_switches = n_switches
+        # self.n_obs = n_obs
+        # self.n_hidden = n_hidden
+        # if state_space_models is not None:
+        self.n_switches = len(state_space_models)
+        self.n_obs = state_space_models[0].n_hidden
+        self.n_hidden = state_space_models[0].n_obs
 
         # We don't need the observation part of this model
         self.switching_model = HMM(self.n_switches, self.n_switches)
+        if switching_model is not None:
+            self.switching_model = switching_model
+
         self.state_space_models = dict()
-        for switch in range(n_switches):
-            self.state_space_models[switch] = KalmanFilter(n_obs, n_hidden)
+        for switch in range(self.n_switches):
+            self.state_space_models[switch] = state_space_models[switch]
 
     def sample(self, verbose: bool = True):
         switch = self.switching_model.sample(update_state=True)
@@ -32,6 +48,7 @@ class SwitchedStateSpace:
         return lds_samples[switch]
 
     def inner_e_steps(self, obs_sequence, switch_probs):
+        self.reset()
         weighted_data = np.einsum("to, ts -> tso", obs_sequence, switch_probs)
         ssm_posteriors = np.zeros(
             (len(obs_sequence), self.n_switches, self.n_hidden)
@@ -53,7 +70,17 @@ class SwitchedStateSpace:
             )
         # get switch probs
         errors = self.error_per_switch_per_time(obs_sequence, ssm_posteriors, ssm_covariance_posteriors)
-        switch_probs = errors / errors.sum(axis=1)[:, np.newaxis]
+        temp = 1
+        print(errors)
+        switch_probs = scisp.softmax(temp * errors, axis=1)
+        # print(switch_probs)
+        obs = np.argmax(switch_probs, axis=1)
+        # print(obs)
+        # need to introduce SOft evidence
+        switch_probs, _, _, = self.switching_model.e_step(obs)
+        switch_probs /= switch_probs.sum(axis=1)[:, np.newaxis]
+        # print("HERE!")
+        # print(switch_probs)
         return switch_probs
 
     def e_step(self, obs_sequence, iters: int):
@@ -67,22 +94,22 @@ class SwitchedStateSpace:
         switch_probs = init_switch_probs
         for i in range(iters):
             switch_probs = self.inner_e_steps(obs_sequence, switch_probs)
-            print(switch_probs)
+        return switch_probs
 
-    def em(self, obs_sequence):
-        self.e_step(obs_sequence, iters=3)
+    def em(self, obs_sequence, iters=10):
+        switch_probs = self.e_step(obs_sequence, iters=iters)
+        return switch_probs
 
     def error_per_switch_per_time(self, obs_sequence, ssm_state_post, ssm_cov_post):
         likelihood_matrix = self.get_overall_likelihood_matrices()
-        print(ssm_state_post.shape)
-        print(likelihood_matrix.shape)
         constant_term = np.einsum("to, to -> t", obs_sequence, obs_sequence)
+        assert not np.any(constant_term < 0)
         state_term = np.einsum("to, soh, tsh -> ts", obs_sequence, likelihood_matrix, ssm_state_post, )
-        print(ssm_cov_post.shape)
-        cov_term = np.einsum("soh, soh, tshj -> ts", likelihood_matrix, likelihood_matrix, ssm_cov_post)
-        # cov_term = np.trace(axis1=1, axis2=2)
+        cov_term = np.einsum("soh, soj, tshj -> tshj", likelihood_matrix, likelihood_matrix, ssm_cov_post)
+        cov_term = np.trace(cov_term, axis1=2, axis2=3)
+        # print(cov_term.shape)
         constant_term = constant_term[:, np.newaxis]
-        return constant_term + state_term + cov_term
+        return(- .5 * constant_term + state_term - .5 * cov_term)
 
     def get_overall_likelihood_matrices(self):
         likelihood = np.zeros((self.n_switches, self.n_hidden, self.n_obs))
@@ -93,7 +120,7 @@ class SwitchedStateSpace:
 
     def reset(self):
         self.switching_model.reset()
-        for switch in range(self, self.n_switches):
+        for switch in range(self.n_switches):
             self.state_space_models[switch].reset()
 
         # for obs in obs_sequence:
@@ -112,12 +139,22 @@ class SwitchedStateSpace:
 
 
 if __name__ == "__main__":
-    ref_switch_ssm = SwitchedStateSpace(n_switches=2, n_hidden=1, n_obs=1)
+    np.set_printoptions(precision=1)
+
+    ref_switch_ssm = SwitchedStateSpace(
+        [
+            KalmanFilter(n_obs=1, n_hidden=1, transition=np.array([[10]])),
+            KalmanFilter(n_obs=1, n_hidden=1, transition=np.array([[0]]))
+        ],
+        switching_model=HMM(2, 2, transition_prior=np.array([[10, 1],[1, 10]]), emmission_prior=np.array([[99, 1],[1,99]]))
+    )
 
     traj = []
-    for i in range(3):
+    for i in range(20):
         traj.append(ref_switch_ssm.sample())
 
-    print(traj)
+    print(np.array(traj))
 
-    ref_switch_ssm.em(traj)
+    posterior_switch = ref_switch_ssm.em(traj, iters=100)
+    for i in range(len(posterior_switch)):
+        print(np.argmax(posterior_switch[i]))
